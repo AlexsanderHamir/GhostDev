@@ -1,3 +1,6 @@
 tasks.md
 venv/
 decisions_notes.md
+learnings/
+.env
+__pycache__
