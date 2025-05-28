@@ -1,0 +1,112 @@
+<html>
+  <head>
+    <title>GhostDev - Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Alpine.js -->
+    <script
+      defer
+      src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+  </head>
+  <body class="bg-gray-100 min-h-screen">
+    <!-- Navigation Bar -->
+    <nav class="bg-white shadow-lg">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between h-16">
+          <div class="flex items-center">
+            <a href="/" class="text-xl font-bold text-gray-800">GhostDev</a>
+          </div>
+          <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+              {% if user.avatar_url %}
+              <img
+                src="{{ user.avatar_url }}"
+                alt="Profile"
+                class="w-8 h-8 rounded-full"
+              />
+              {% endif %}
+              <span class="text-gray-700">{{ user.name or user.login }}</span>
+            </div>
+            <a href="/auth/logout" class="text-red-600 hover:text-red-800"
+              >Sign Out</a
+            >
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <!-- Welcome Section -->
+      <div class="bg-white shadow rounded-lg p-6 mb-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-4">
+          Welcome to GhostDev
+        </h1>
+        <p class="text-gray-600">
+          You're now logged in and ready to use the GhostDev API. Here's what
+          you can do:
+        </p>
+      </div>
+
+      <!-- API Keys Section -->
+      <div class="bg-white shadow rounded-lg p-6 mb-6">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">API Keys</h2>
+        <div class="space-y-4">
+          <p class="text-gray-600">
+            Your API keys will be displayed here. Use these keys to authenticate
+            your API requests.
+          </p>
+          <button
+            class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Generate New API Key
+          </button>
+        </div>
+      </div>
+
+      <!-- API Usage Section -->
+      <div class="bg-white shadow rounded-lg p-6">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">API Usage</h2>
+        <div class="space-y-4">
+          <p class="text-gray-600">Monitor your API usage and limits here.</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <h3 class="text-lg font-medium text-gray-800">Requests Today</h3>
+              <p class="text-2xl font-bold text-blue-600">0</p>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <h3 class="text-lg font-medium text-gray-800">Monthly Usage</h3>
+              <p class="text-2xl font-bold text-blue-600">0</p>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <h3 class="text-lg font-medium text-gray-800">Rate Limit</h3>
+              <p class="text-2xl font-bold text-blue-600">1000/day</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Documentation Links -->
+      <div class="mt-8 pt-6 border-t border-gray-200">
+        <p class="text-sm text-gray-600 mb-2">API Documentation:</p>
+        <div class="flex space-x-4">
+          <a
+            href="/docs"
+            class="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+          >
+            Swagger UI
+          </a>
+          <a
+            href="/redoc"
+            class="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+          >
+            ReDoc
+          </a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
