@@ -6,3 +6,4 @@ python-dotenv==1.1.0
 python-jose==3.5.0
 python-multipart==0.0.20
 uvicorn==0.34.2
+APScheduler==5.3.1 

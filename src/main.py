@@ -6,45 +6,38 @@ from fastapi.templating import Jinja2Templates
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.config import Config
+from contextlib import asynccontextmanager
 import uvicorn
 import os
 from dotenv import load_dotenv
-from typing import Optional, List, Dict, Any
-import psycopg2
-import shutil
 from datetime import datetime
-import uuid
 
 from helpers import (get_current_user, handle_github_callback,
                      fetch_github_repositories, get_language_color,
                      format_date, save_pdf_file, create_task, get_user_tasks,
-                     get_repo_tasks, get_task_details)
+                     get_repo_tasks, get_task_details, get_db_connection)
+from scheduler import setup_scheduler
 
 # Load environment variables
 load_dotenv()
 
-USER = os.getenv("SUPABASE_USER")
-PASSWORD = os.getenv("SUPABASE_PASSWORD")
-HOST = os.getenv("SUPABASE_HOST")
-PORT = os.getenv("SUPABASE_PORT")
-DBNAME = os.getenv("SUPABASE_DB_NAME")
+# Global scheduler variable
+scheduler = None
 
 
-def get_db_connection():
-    try:
-        connection = psycopg2.connect(user=USER,
-                                      password=PASSWORD,
-                                      host=HOST,
-                                      port=PORT,
-                                      dbname=DBNAME)
-        print("Connection successful!")
-        return connection
-    except Exception as e:
-        print(f"Failed to connect: {e}")
-        raise  # Re-raise the exception to handle it in the calling code
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global scheduler
+    # Startup
+    scheduler = setup_scheduler()
+    scheduler.start()
+    yield
+    # Shutdown
+    if scheduler:
+        scheduler.shutdown()
 
 
-app = FastAPI(title="GhostDev API")
+app = FastAPI(title="GhostDev API", lifespan=lifespan)
 
 # Add session middleware
 app.add_middleware(SessionMiddleware,
@@ -187,6 +180,7 @@ async def get_user_id(user: dict = Depends(get_current_user)):
 async def create_new_task(task_name: str = Form(...),
                           repo_id: int = Form(...),
                           pdf_file: UploadFile = File(...),
+                          scheduled_time: str = Form(...),
                           user: dict = Depends(get_current_user)):
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -196,11 +190,23 @@ async def create_new_task(task_name: str = Form(...),
                             detail="Only PDF files are allowed")
 
     try:
+        # Parse scheduled_time string to datetime
+        try:
+            scheduled_datetime = datetime.fromisoformat(
+                scheduled_time.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=
+                "Invalid scheduled_time format. Use ISO format (YYYY-MM-DDTHH:MM:SSZ)"
+            )
+
         # Save the PDF file
         pdf_file_path = save_pdf_file(pdf_file, user['id'])
 
         # Create task in database
-        task = create_task(repo_id, task_name, pdf_file_path, user['id'])
+        task = create_task(repo_id, task_name, pdf_file_path, user['id'],
+                           scheduled_datetime)
 
         return JSONResponse(content=task, status_code=201)
     except Exception as e:
