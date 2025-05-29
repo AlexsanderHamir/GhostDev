@@ -63,17 +63,7 @@ async def get_current_user(request: Request) -> Optional[dict]:
 def format_date(date_str: str) -> str:
     """Format a date string for display."""
     date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-    now = datetime.now(date.tzinfo)
-    diff = now - date
-
-    if diff.days == 0:
-        return "today"
-    elif diff.days == 1:
-        return "yesterday"
-    elif diff.days < 7:
-        return f"{diff.days} days ago"
-    else:
-        return date.strftime("%Y-%m-%d")
+    return date.strftime("%Y-%m-%d %H:%M")
 
 
 def get_language_color(lang: str) -> str:
@@ -217,8 +207,8 @@ def create_repository(repo_id: int, user_id: int) -> None:
                             detail="Failed to create repository")
 
 
-def create_task(repo_id: int, task_name: str, pdf_file_path: str,
-                user_id: int) -> Dict[str, Any]:
+def create_task(repo_id: int, task_name: str, pdf_file_path: str, user_id: int,
+                scheduled_time: datetime) -> Dict[str, Any]:
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -229,12 +219,12 @@ def create_task(repo_id: int, task_name: str, pdf_file_path: str,
         # Create the task
         cur.execute(
             """
-            INSERT INTO "Task" (repo_id, task_name, pdf_file_path)
-            VALUES (%s, %s, %s)
-            RETURNING task_id, created_at
-            """, (repo_id, task_name, pdf_file_path))
+            INSERT INTO "Task" (repo_id, task_name, pdf_file_path, scheduled_time)
+            VALUES (%s, %s, %s, %s)
+            RETURNING task_id, created_at, scheduled_time
+            """, (repo_id, task_name, pdf_file_path, scheduled_time))
 
-        task_id, created_at = cur.fetchone()
+        task_id, created_at, scheduled_time = cur.fetchone()
 
         # Update pending tasks count
         cur.execute(
@@ -247,12 +237,20 @@ def create_task(repo_id: int, task_name: str, pdf_file_path: str,
         conn.commit()
 
         task = {
-            "task_id": task_id,
-            "repo_id": repo_id,
-            "task_name": task_name,
-            "pdf_file_path": pdf_file_path,
-            "user_id": user_id,
-            "created_at": created_at.isoformat()
+            "task_id":
+            task_id,
+            "repo_id":
+            repo_id,
+            "task_name":
+            task_name,
+            "pdf_file_path":
+            pdf_file_path,
+            "user_id":
+            user_id,
+            "created_at":
+            created_at.isoformat(),
+            "scheduled_time":
+            scheduled_time.isoformat() if scheduled_time else None
         }
 
         cur.close()
@@ -271,7 +269,7 @@ def get_user_tasks(user_id: int) -> List[Dict[str, Any]]:
 
         cur.execute(
             """
-            SELECT *
+            SELECT task_id, user_id, repo_id, task_name, pdf_file_path, created_at, scheduled_time
             FROM "Task"
             WHERE user_id = %s
             ORDER BY created_at DESC
@@ -285,7 +283,8 @@ def get_user_tasks(user_id: int) -> List[Dict[str, Any]]:
                 "repo_id": row[2],
                 "task_name": row[3],
                 "pdf_file_path": row[4],
-                "created_at": row[5].isoformat()
+                "created_at": row[5].isoformat(),
+                "scheduled_time": row[6].isoformat() if row[6] else None
             }
             tasks.append(task)
 
@@ -304,7 +303,7 @@ def get_repo_tasks(repo_id: int, user_id: int) -> List[Dict[str, Any]]:
 
         cur.execute(
             """
-            SELECT t.*
+            SELECT t.task_id, t.created_at, t.task_name, t.repo_id, t.pdf_file_path, t.scheduled_time, t.task_completed
             FROM "Task" t
             JOIN "Repo" r ON t.repo_id = r.repo_id
             WHERE t.repo_id = %s AND r.user_id = %s
@@ -313,16 +312,19 @@ def get_repo_tasks(repo_id: int, user_id: int) -> List[Dict[str, Any]]:
 
         tasks = []
         for row in cur.fetchall():
-            print(row)
             created_at = row[1].isoformat() if hasattr(row[1],
                                                        'isoformat') else row[1]
+            scheduled_time = row[5].isoformat() if row[5] and hasattr(
+                row[5], 'isoformat') else row[5]
 
             task = {
                 "task_id": row[0],
                 "repo_id": row[3],
                 "task_name": row[2],
                 "pdf_file_path": row[4],
-                "created_at": created_at
+                "created_at": created_at,
+                "scheduled_time": scheduled_time,
+                "task_completed": row[6]
             }
             tasks.append(task)
 
@@ -345,7 +347,7 @@ async def get_task_details(task_id: int, user_id: int, oauth: OAuth,
         # First get the task and repo_id from the database
         cur.execute(
             """
-            SELECT t.*, r.repo_id
+            SELECT t.task_id, t.created_at, t.task_name, t.repo_id, t.pdf_file_path, t.scheduled_time, t.task_completed, r.repo_id
             FROM "Task" t
             JOIN "Repo" r ON t.repo_id = r.repo_id
             WHERE t.task_id = %s AND r.user_id = %s
@@ -354,7 +356,6 @@ async def get_task_details(task_id: int, user_id: int, oauth: OAuth,
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
-
 
         # Get repository details from GitHub API
         repos = await fetch_github_repositories(oauth, token, "all")
@@ -373,6 +374,11 @@ async def get_task_details(task_id: int, user_id: int, oauth: OAuth,
             row[3],
             "pdf_file_path":
             row[4],
+            "scheduled_time":
+            row[5].isoformat()
+            if row[5] and hasattr(row[5], 'isoformat') else row[5],
+            "task_completed":
+            row[6],
             "repo_name":
             repo_info['name'],
             "repo_url":
