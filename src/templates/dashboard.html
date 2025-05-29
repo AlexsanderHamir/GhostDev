@@ -5,13 +5,87 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Global getLanguageColor function for Alpine.js -->
+    <script>
+      window.getLanguageColor = function(language) {
+        const colors = {
+          JavaScript: '#f1e05a',
+          Python: '#3572A5',
+          Java: '#b07219',
+          TypeScript: '#2b7489',
+          HTML: '#e34c26',
+          CSS: '#563d7c',
+          Go: '#00ADD8',
+          C: '#555555',
+          'C++': '#f34b7d',
+          Shell: '#89e051',
+          Ruby: '#701516',
+          PHP: '#4F5D95',
+          default: '#cccccc'
+        };
+        return colors[language] || colors.default;
+      }
+      window.formatDate = function(dateString) {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        if (isNaN(date)) return dateString;
+        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      }
+    </script>
     <!-- Alpine.js -->
     <script
       defer
       src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"
     ></script>
+    <!-- Add custom styles for modal backdrop -->
+    <style>
+      .modal-backdrop {
+        background-color: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
+      }
+    </style>
   </head>
-  <body class="bg-gray-100 min-h-screen">
+  <body class="bg-gray-100 min-h-screen" x-data="{ 
+    showTaskModal: false,
+    selectedRepo: null,
+    taskName: '',
+    taskFile: null,
+    isSubmitting: false,
+    handleFileUpload(event) {
+      this.taskFile = event.target.files[0];
+    },
+    async submitTask() {
+      if (!this.taskName || !this.taskFile) return;
+      this.isSubmitting = true;
+      
+      const formData = new FormData();
+      formData.append('task_name', this.taskName);
+      formData.append('pdf_file', this.taskFile);
+      formData.append('repo_id', this.selectedRepo.id);
+      
+      try {
+        const response = await fetch('/api/tasks', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (response.ok) {
+          this.showTaskModal = false;
+          this.taskName = '';
+          this.taskFile = null;
+          this.selectedRepo = null;
+          // You might want to show a success message here
+        } else {
+          // Handle error
+          console.error('Failed to create task');
+        }
+      } catch (error) {
+        console.error('Error creating task:', error);
+      } finally {
+        this.isSubmitting = false;
+      }
+    }
+  }">
     <!-- Navigation Bar -->
     <nav class="bg-white shadow-lg">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -43,48 +117,211 @@
       <!-- Welcome Section -->
       <div class="bg-white shadow rounded-lg p-6 mb-6">
         <h1 class="text-2xl font-bold text-gray-800 mb-4">
-          Welcome to GhostDev
+          Welcome, {{ user.name or user.login }}!
         </h1>
         <p class="text-gray-600">
-          You're now logged in and ready to use the GhostDev API. Here's what
-          you can do:
+          Manage your repositories and tasks all in one place.
         </p>
       </div>
 
-      <!-- API Keys Section -->
-      <div class="bg-white shadow rounded-lg p-6 mb-6">
-        <h2 class="text-xl font-semibold text-gray-800 mb-4">API Keys</h2>
-        <div class="space-y-4">
-          <p class="text-gray-600">
-            Your API keys will be displayed here. Use these keys to authenticate
-            your API requests.
-          </p>
-          <button
-            class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Generate New API Key
-          </button>
+      <!-- Repositories Section -->
+      <div class="bg-white shadow rounded-lg p-6 mb-6" 
+           x-data="{ 
+             gridView: true,
+             visibleRepos: 6,
+             loading: false,
+             searchQuery: '',
+             showMore() {
+               this.loading = true;
+               setTimeout(() => {
+                 this.visibleRepos += 6;
+                 this.loading = false;
+               }, 300);
+             },
+             get filteredRepos() {
+               if (!this.searchQuery) return $store.repos;
+               const q = this.searchQuery.toLowerCase();
+               return $store.repos.filter(r =>
+                 (r.name && r.name.toLowerCase().includes(q)) ||
+                 (r.description && r.description.toLowerCase().includes(q))
+               );
+             }
+           }">
+        <div class="flex justify-between items-start mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 mt-1">Your Repositories</h2>
+          <div class="flex flex-row space-x-4 items-start">
+            <div class="flex items-center space-x-2">
+              <button 
+                @click="gridView = !gridView"
+                class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <template x-if="gridView">
+                  <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                </template>
+                <template x-if="!gridView">
+                  <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </template>
+                <span x-text="gridView ? 'Grid View' : 'List View'"></span>
+              </button>
+            </div>
+            <form method="GET" action="/dash" class="flex space-x-2">
+              <select
+                name="visibility"
+                class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                onchange="this.form.submit()"
+              >
+                <option value="all" {% if visibility == 'all' %}selected{% endif %}>All Repositories</option>
+                <option value="public" {% if visibility == 'public' %}selected{% endif %}>Public Only</option>
+                <option value="private" {% if visibility == 'private' %}selected{% endif %}>Private Only</option>
+              </select>
+            </form>
+            <input
+              type="text"
+              placeholder="Search repos..."
+              class="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500 shadow-sm"
+              x-model="searchQuery"
+              aria-label="Search repositories"
+              style="min-width: 180px;"
+            />
+          </div>
         </div>
-      </div>
 
-      <!-- API Usage Section -->
-      <div class="bg-white shadow rounded-lg p-6">
-        <h2 class="text-xl font-semibold text-gray-800 mb-4">API Usage</h2>
-        <div class="space-y-4">
-          <p class="text-gray-600">Monitor your API usage and limits here.</p>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-gray-50 p-4 rounded-lg">
-              <h3 class="text-lg font-medium text-gray-800">Requests Today</h3>
-              <p class="text-2xl font-bold text-blue-600">0</p>
-            </div>
-            <div class="bg-gray-50 p-4 rounded-lg">
-              <h3 class="text-lg font-medium text-gray-800">Monthly Usage</h3>
-              <p class="text-2xl font-bold text-blue-600">0</p>
-            </div>
-            <div class="bg-gray-50 p-4 rounded-lg">
-              <h3 class="text-lg font-medium text-gray-800">Rate Limit</h3>
-              <p class="text-2xl font-bold text-blue-600">1000/day</p>
-            </div>
+        <!-- Repositories Grid/List -->
+        <div class="space-y-6">
+          <!-- Grid View -->
+          <div x-show="gridView" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <template x-for="(repo, index) in filteredRepos.slice(0, visibleRepos)" :key="repo.id">
+              <div class="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200">
+                <div class="p-6">
+                  <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                      <h3 class="text-lg font-semibold text-gray-900 mb-1">
+                        <a :href="'/repo/' + repo.id" class="hover:text-blue-600 transition-colors" x-text="repo.name"></a>
+                      </h3>
+                      <p class="text-sm text-gray-600 mb-4 line-clamp-2" x-text="repo.description || 'No description provided'"></p>
+                    </div>
+                    <template x-if="repo.private">
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        Private
+                      </span>
+                    </template>
+                  </div>
+
+                  <div class="flex items-center space-x-4 text-sm text-gray-500 mb-4">
+                    <template x-if="repo.language">
+                      <div class="flex items-center">
+                        <span class="w-3 h-3 rounded-full mr-1" :style="'background-color: ' + getLanguageColor(repo.language)"></span>
+                        <span x-text="repo.language"></span>
+                      </div>
+                    </template>
+                    <div class="flex items-center">
+                      <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                      </svg>
+                      <span x-text="repo.stars"></span>
+                    </div>
+                    <div class="flex items-center">
+                      <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+                      </svg>
+                      <span x-text="repo.forks"></span>
+                    </div>
+                  </div>
+
+                  <div class="flex justify-between items-center">
+                    <div class="text-xs text-gray-500" x-text="'Updated ' + formatDate(repo.updated_at)"></div>
+                    <button 
+                      @click="selectedRepo = repo; showTaskModal = true"
+                      class="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+                    >
+                      Create Task
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- List View -->
+          <div x-show="!gridView" class="space-y-4">
+            <template x-for="(repo, index) in filteredRepos.slice(0, visibleRepos)" :key="repo.id">
+              <div class="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200">
+                <div class="p-6">
+                  <div class="flex items-center justify-between">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center space-x-3">
+                        <h3 class="text-lg font-semibold text-gray-900 truncate">
+                          <a :href="'/repo/' + repo.id" class="hover:text-blue-600 transition-colors" x-text="repo.name"></a>
+                        </h3>
+                        <template x-if="repo.private">
+                          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            Private
+                          </span>
+                        </template>
+                      </div>
+                      <p class="mt-1 text-sm text-gray-600 line-clamp-2" x-text="repo.description || 'No description provided'"></p>
+                    </div>
+                  </div>
+
+                  <div class="mt-4 flex items-center space-x-6 text-sm text-gray-500">
+                    <template x-if="repo.language">
+                      <div class="flex items-center">
+                        <span class="w-3 h-3 rounded-full mr-1" :style="'background-color: ' + getLanguageColor(repo.language)"></span>
+                        <span x-text="repo.language"></span>
+                      </div>
+                    </template>
+                    <div class="flex items-center">
+                      <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                      </svg>
+                      <span x-text="repo.stars"></span>
+                    </div>
+                    <div class="flex items-center">
+                      <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+                      </svg>
+                      <span x-text="repo.forks"></span>
+                    </div>
+                    <div class="text-gray-500" x-text="'Updated ' + formatDate(repo.updated_at)"></div>
+                  </div>
+
+                  <div class="flex justify-between items-center">
+                    <button 
+                      @click="selectedRepo = repo; showTaskModal = true"
+                      class="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+                    >
+                      Create Task
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Show More Button -->
+          <div class="flex justify-center mt-6" x-show="visibleRepos < filteredRepos.length">
+            <button 
+              @click="showMore()"
+              class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+              :disabled="loading"
+            >
+              <template x-if="!loading">
+                <span>Show More</span>
+              </template>
+              <template x-if="loading">
+                <div class="flex items-center">
+                  <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Loading...</span>
+                </div>
+              </template>
+            </button>
           </div>
         </div>
       </div>
@@ -108,5 +345,104 @@
         </div>
       </div>
     </main>
+
+    <!-- Task Creation Modal -->
+    <div 
+      x-show="showTaskModal" 
+      x-transition:enter="transition ease-out duration-300"
+      x-transition:enter-start="opacity-0"
+      x-transition:enter-end="opacity-100"
+      x-transition:leave="transition ease-in duration-200"
+      x-transition:leave-start="opacity-100"
+      x-transition:leave-end="opacity-0"
+      class="fixed inset-0 z-50 overflow-y-auto"
+      style="display: none;"
+    >
+      <!-- Modal Backdrop -->
+      <div class="fixed inset-0 modal-backdrop"></div>
+
+      <!-- Modal Content -->
+      <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        <div 
+          class="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6"
+          @click.away="showTaskModal = false"
+        >
+          <div class="sm:flex sm:items-start">
+            <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+              <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">
+                Create Task for <span x-text="selectedRepo?.name"></span>
+              </h3>
+              
+              <form @submit.prevent="submitTask" class="space-y-4">
+                <div>
+                  <label for="task-name" class="block text-sm font-medium text-gray-700 mb-1">Task Name</label>
+                  <input
+                    type="text"
+                    id="task-name"
+                    x-model="taskName"
+                    class="mt-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    placeholder="Enter task name"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label for="pdf-file" class="block text-sm font-medium text-gray-700">PDF File</label>
+                  <input
+                    type="file"
+                    id="pdf-file"
+                    @change="handleFileUpload"
+                    accept=".pdf"
+                    class="mt-1 block w-full text-sm text-gray-500
+                      file:mr-4 file:py-2 file:px-4
+                      file:rounded-md file:border-0
+                      file:text-sm file:font-medium
+                      file:bg-blue-50 file:text-blue-700
+                      hover:file:bg-blue-100"
+                    required
+                  />
+                  <p class="mt-1 text-sm text-gray-500" x-text="taskFile ? taskFile.name : 'No file chosen'"></p>
+                </div>
+
+                <div class="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                  <button
+                    type="submit"
+                    :disabled="isSubmitting || !taskName || !taskFile"
+                    class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <template x-if="!isSubmitting">
+                      <span>Create Task</span>
+                    </template>
+                    <template x-if="isSubmitting">
+                      <span class="flex items-center">
+                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Creating...
+                      </span>
+                    </template>
+                  </button>
+                  <button
+                    type="button"
+                    @click="showTaskModal = false"
+                    class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Initialize Alpine.js Store -->
+    <script>
+      document.addEventListener('alpine:init', () => {
+        Alpine.store('repos', JSON.parse('{{ repositories | tojson | safe }}'));
+      });
+    </script>
   </body>
 </html>
