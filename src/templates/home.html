@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>GhostDev - {% if user %}Dashboard{% else %}Login{% endif %}</title>
+    <title>GhostDev - Login</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- HTMX -->
@@ -18,45 +18,9 @@
         <!-- Logo/Title -->
         <div class="text-center mb-8">
           <h1 class="text-3xl font-bold text-gray-800">GhostDev</h1>
-          {% if user %}
-          <p class="text-gray-600 mt-2">
-            Welcome, {{ user.name or user.login }}!
-          </p>
-          {% else %}
           <p class="text-gray-600 mt-2">Sign in to access the API</p>
-          {% endif %}
         </div>
 
-        {% if user %}
-        <!-- User Profile -->
-        <div class="space-y-4">
-          <div class="flex items-center space-x-4">
-            {% if user.avatar_url %}
-            <img
-              src="{{ user.avatar_url }}"
-              alt="Profile"
-              class="w-16 h-16 rounded-full"
-            />
-            {% endif %}
-            <div>
-              <h2 class="text-xl font-semibold">
-                {{ user.name or user.login }}
-              </h2>
-              {% if user.email %}
-              <p class="text-gray-600">{{ user.email }}</p>
-              {% endif %}
-            </div>
-          </div>
-
-          <!-- Logout Button -->
-          <a
-            href="/auth/logout"
-            class="w-full flex items-center justify-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors"
-          >
-            Sign Out
-          </a>
-        </div>
-        {% else %}
         <!-- GitHub Login Button -->
         <div class="space-y-4">
           <a
@@ -82,7 +46,6 @@
             >
           </p>
         </div>
-        {% endif %}
 
         <!-- API Documentation Links -->
         <div class="mt-8 pt-6 border-t border-gray-200">
