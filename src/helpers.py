@@ -1,26 +1,20 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import Request, HTTPException, UploadFile
+from fastapi import FastAPI, Request, HTTPException, UploadFile
 from authlib.integrations.starlette_client import OAuth
-import psycopg2
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from starlette.config import Config
 import os
 import shutil
 import uuid
+from starlette.middleware.sessions import SessionMiddleware
+from db import get_db_connection
+from scheduler import setup_scheduler
 
-
-# Database connection
-def get_db_connection():
-    try:
-        connection = psycopg2.connect(user=os.getenv("SUPABASE_USER"),
-                                      password=os.getenv("SUPABASE_PASSWORD"),
-                                      host=os.getenv("SUPABASE_HOST"),
-                                      port=os.getenv("SUPABASE_PORT"),
-                                      dbname=os.getenv("SUPABASE_DB_NAME"))
-        print("Connection successful!")
-        return connection
-    except Exception as e:
-        print(f"Failed to connect: {e}")
-        raise
+from typing import Optional
+from dataclasses import dataclass
 
 
 def upsert_github_user(github_id: int) -> bool:
@@ -56,7 +50,6 @@ def upsert_github_user(github_id: int) -> bool:
 
 
 async def get_current_user(request: Request) -> Optional[dict]:
-    """Get the current user from the session."""
     return request.session.get('github_user')
 
 
@@ -392,3 +385,243 @@ async def get_task_details(task_id: int, user_id: int, oauth: OAuth,
         print(f"Error fetching task details: {e}")
         raise HTTPException(status_code=500,
                             detail="Failed to fetch task details")
+
+
+async def get_repo_url(repo_id: int, oauth: OAuth, token: dict) -> str:
+    """Get the URL for a specific repository by its ID."""
+    try:
+        repos = await fetch_github_repositories(oauth, token, "all")
+        repo = next((r for r in repos if r['id'] == repo_id), None)
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        return repo['url']
+    except Exception as e:
+        print(f"Error fetching repository URL: {e}")
+        raise HTTPException(status_code=500,
+                            detail="Failed to fetch repository URL")
+
+
+def oauth_config() -> OAuth:
+    config = Config('.env')
+    oauth = OAuth(config)
+
+    oauth.register(
+        name='github',
+        client_id=os.getenv('GITHUB_CLIENT_ID'),
+        client_secret=os.getenv('GITHUB_CLIENT_SECRECT'),
+        access_token_url='https://github.com/login/oauth/access_token',
+        access_token_params=None,
+        authorize_url='https://github.com/login/oauth/authorize',
+        authorize_params=None,
+        api_base_url='https://api.github.com/',
+        client_kwargs={'scope': 'user:email repo'},
+    )
+
+    return oauth
+
+
+@dataclass
+class AppState:
+    scheduler: Optional[Any] = None
+
+    def initialize_scheduler(self) -> None:
+        try:
+            self.scheduler = setup_scheduler()
+            self.scheduler.start()
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize scheduler: {e}")
+
+    def shutdown_scheduler(self) -> None:
+        if self.scheduler is not None:
+            try:
+                self.scheduler.shutdown()
+            except Exception as e:
+                print(f"Error during scheduler shutdown: {e}")
+
+
+def create_app() -> FastAPI:
+    title = os.getenv("APP_TITLE")
+    session_cookie = os.getenv("SESSION_COOKIE_NAME")
+    middleware_secret = os.getenv("MIDDLEWARE_SECRET_KEY")
+
+    if not middleware_secret:
+        raise ValueError("Session middleware secret key not provided")
+    if not title:
+        raise ValueError("App title not provided")
+    if not session_cookie:
+        raise ValueError("Session cookie name not provided")
+
+    app_state = AppState()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            # Startup: Initialize scheduler
+            app_state.initialize_scheduler()
+            yield
+        finally:
+            # Shutdown: Cleanup resources
+            app_state.shutdown_scheduler()
+
+    app = FastAPI(title=title, lifespan=lifespan)
+
+    app.add_middleware(SessionMiddleware,
+                       secret_key=middleware_secret,
+                       session_cookie=session_cookie)
+
+    return app
+
+
+async def handle_auth_callback(request: Request, oauth) -> RedirectResponse:
+    """Handle GitHub OAuth callback and return redirect response."""
+    try:
+        await handle_github_callback(request, oauth)
+        return RedirectResponse(url='/dash')
+    except Exception as e:
+        request.session.clear()
+        raise HTTPException(status_code=400,
+                            detail=f"Authentication failed: {str(e)}")
+
+
+async def validate_user_session(request: Request) -> tuple[dict, str]:
+    """Validate user session and return user info and token."""
+    user = await get_current_user(request)
+    if not user:
+        raise RedirectResponse(url='/')
+
+    token = request.session.get('github_token')
+    if not token:
+        raise HTTPException(status_code=401, detail="No GitHub token found")
+
+    return user, token
+
+
+async def get_dashboard_data(oauth, token: str, visibility: str) -> dict:
+    """Fetch and format repository data for dashboard."""
+    try:
+        formatted_repos = await fetch_github_repositories(
+            oauth, token, visibility)
+        return formatted_repos
+    except Exception as e:
+        raise HTTPException(status_code=500,
+                            detail=f"Error fetching repositories: {str(e)}")
+
+
+class TaskCreateResponse(BaseModel):
+    task_id: int
+    task_name: str
+    repo_id: int
+    pdf_file_path: str
+    user_id: int
+    created_at: str
+    scheduled_time: Optional[str]
+
+
+def validate_pdf_file(file: UploadFile) -> None:
+    """Validate that the uploaded file is a PDF."""
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400,
+                            detail="Only PDF files are allowed")
+
+
+def parse_scheduled_time(time_str: str) -> datetime:
+    """Parse and validate the scheduled time string."""
+    try:
+        return datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=
+            "Invalid scheduled_time format. Use ISO format (YYYY-MM-DDTHH:MM:SSZ)"
+        )
+
+
+def handle_task_creation(repo_id: int, task_name: str, pdf_file: UploadFile,
+                         user_id: int,
+                         scheduled_time: datetime) -> TaskCreateResponse:
+    try:
+        # Save the PDF file
+        pdf_file_path = save_pdf_file(pdf_file, user_id)
+
+        # Create task in database
+        task = create_task(repo_id, task_name, pdf_file_path, user_id,
+                           scheduled_time)
+
+        return TaskCreateResponse(**task)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def get_repo_details_from_github(oauth: OAuth, token: dict,
+                                       repo_id: int) -> dict:
+    """Get repository details from GitHub API."""
+    # First get the repository's full name from the list of repositories
+    repos = await fetch_github_repositories(oauth, token, "all")
+    repo_info = next((r for r in repos if r['id'] == repo_id), None)
+    if not repo_info:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    # Fetch repository details using the full name
+    resp = await oauth.github.get(f'repos/{repo_info["full_name"]}',
+                                  token=token)
+    if not resp or resp.status_code != 200:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    repo = resp.json()
+    return {
+        'id': repo['id'],
+        'name': repo['name'],
+        'description': repo['description'],
+        'url': repo['html_url'],
+        'stars': repo['stargazers_count'],
+        'forks': repo['forks_count'],
+        'language': repo['language'],
+        'private': repo['private'],
+        'created_at': repo['created_at'],
+        'updated_at': repo['updated_at']
+    }
+
+
+def get_repo_task_counts(repo_id: int, user_id: int) -> tuple[int, int]:
+    """Get pending and completed task counts for a repository."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT pending_tasks, completed_tasks
+            FROM "Repo"
+            WHERE repo_id = %s AND user_id = %s
+            """, (repo_id, user_id))
+
+        row = cur.fetchone()
+        pending_tasks_count = row[0] if row else 0
+        completed_tasks_count = row[1] if row else 0
+        return pending_tasks_count, completed_tasks_count
+    finally:
+        cur.close()
+        conn.close()
+
+
+async def get_repository_details(repo_id: int, user_id: int, oauth: OAuth,
+                                 token: dict) -> dict:
+    """Get complete repository details including tasks and counts."""
+    try:
+        # Get repository details from GitHub
+        repo = await get_repo_details_from_github(oauth, token, repo_id)
+
+        # Get tasks for this repository
+        tasks = get_repo_tasks(repo_id, user_id)
+
+        # Get task counts
+        pending_tasks_count, completed_tasks_count = get_repo_task_counts(
+            repo_id, user_id)
+
+        return {
+            "repo": repo,
+            "tasks": tasks,
+            "pending_tasks_count": pending_tasks_count,
+            "completed_tasks_count": completed_tasks_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
