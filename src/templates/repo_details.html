@@ -11,6 +11,37 @@
       defer
       src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"
     ></script>
+    <!-- Global getLanguageColor function for Alpine.js -->
+    <script>
+      window.getLanguageColor = function (language) {
+        const colors = {
+          JavaScript: "#f1e05a",
+          Python: "#3572A5",
+          Java: "#b07219",
+          TypeScript: "#2b7489",
+          HTML: "#e34c26",
+          CSS: "#563d7c",
+          Go: "#00ADD8",
+          C: "#555555",
+          "C++": "#f34b7d",
+          Shell: "#89e051",
+          Ruby: "#701516",
+          PHP: "#4F5D95",
+          default: "#cccccc",
+        };
+        return colors[language] || colors.default;
+      };
+      window.formatDate = function (dateString) {
+        if (!dateString) return "";
+        const date = new Date(dateString);
+        if (isNaN(date)) return dateString;
+        return date.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      };
+    </script>
     <!-- Lottie for animations -->
     <script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
     <style>
@@ -54,7 +85,46 @@
     </nav>
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <main
+      class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8"
+      x-data="{ 
+        showTaskModal: false,
+        taskName: '',
+        taskFile: null,
+        scheduledTime: '',
+        isSubmitting: false,
+        handleFileUpload(event) {
+          this.taskFile = event.target.files[0];
+        },
+        async submitTask() {
+          if (!this.taskName || !this.taskFile || !this.scheduledTime) return;
+          this.isSubmitting = true;
+          
+          const formData = new FormData();
+          formData.append('task_name', this.taskName);
+          formData.append('pdf_file', this.taskFile);
+          formData.append('repo_id', '{{ repo.id }}');
+          formData.append('scheduled_time', this.scheduledTime);
+          
+          try {
+            const response = await fetch('/api/tasks', {
+              method: 'POST',
+              body: formData
+            });
+            
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              console.error('Failed to create task');
+            }
+          } catch (error) {
+            console.error('Error creating task:', error);
+          } finally {
+            this.isSubmitting = false;
+          }
+        }
+      }"
+    >
       <!-- Repository Header -->
       <div class="bg-white shadow rounded-lg p-6 mb-6">
         <div class="flex items-start justify-between">
@@ -154,10 +224,7 @@
       </div>
 
       <!-- Tasks Section -->
-      <div
-        class="bg-white shadow rounded-lg p-6"
-        x-data="{ showTaskModal: false }"
-      >
+      <div class="bg-white shadow rounded-lg p-6">
         <h2 class="text-xl font-semibold text-gray-800 mb-6">Tasks</h2>
 
         {% if tasks %}
@@ -168,12 +235,56 @@
           >
             <div class="flex items-start justify-between">
               <div>
-                <h3 class="text-lg font-medium text-gray-900">
-                  {{ task.task_name }}
-                </h3>
-                <p class="text-sm text-gray-500 mt-1">
-                  Created {{ format_date(task.created_at) }}
-                </p>
+                <div class="flex items-center space-x-2">
+                  <h3 class="text-lg font-medium text-gray-900">
+                    {{ task.task_name }}
+                  </h3>
+                  {% if task.task_completed %}
+                  <span
+                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                  >
+                    <svg
+                      class="w-3 h-3 mr-1"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      ></path>
+                    </svg>
+                    Completed
+                  </span>
+                  {% else %}
+                  <span
+                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"
+                  >
+                    <svg
+                      class="w-3 h-3 mr-1"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      ></path>
+                    </svg>
+                    Pending
+                  </span>
+                  {% endif %}
+                </div>
+                <div class="text-sm text-gray-500 mt-1 space-y-1">
+                  <p>Created {{ format_date(task.created_at) }}</p>
+                  {% if task.scheduled_time %}
+                  <p>Scheduled for {{ format_date(task.scheduled_time) }}</p>
+                  {% endif %}
+                </div>
               </div>
               <a
                 href="/task/{{ task.task_id }}"
@@ -226,7 +337,7 @@
       style="display: none"
     >
       <!-- Modal Backdrop -->
-      <div class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm"></div>
+      <div class="fixed inset-0 modal-backdrop"></div>
 
       <!-- Modal Content -->
       <div
@@ -242,44 +353,7 @@
                 Create Task for {{ repo.name }}
               </h3>
 
-              <form
-                @submit.prevent="submitTask"
-                class="space-y-4"
-                x-data="{ 
-                taskName: '',
-                taskFile: null,
-                isSubmitting: false,
-                handleFileUpload(event) {
-                  this.taskFile = event.target.files[0];
-                },
-                async submitTask() {
-                  if (!this.taskName || !this.taskFile) return;
-                  this.isSubmitting = true;
-                  
-                  const formData = new FormData();
-                  formData.append('task_name', this.taskName);
-                  formData.append('pdf_file', this.taskFile);
-                  formData.append('repo_id', '{{ repo.id }}');
-                  
-                  try {
-                    const response = await fetch('/api/tasks', {
-                      method: 'POST',
-                      body: formData
-                    });
-                    
-                    if (response.ok) {
-                      window.location.reload();
-                    } else {
-                      console.error('Failed to create task');
-                    }
-                  } catch (error) {
-                    console.error('Error creating task:', error);
-                  } finally {
-                    this.isSubmitting = false;
-                  }
-                }
-              }"
-              >
+              <form @submit.prevent="submitTask" class="space-y-4">
                 <div>
                   <label
                     for="task-name"
@@ -294,6 +368,24 @@
                     placeholder="Enter task name"
                     required
                   />
+                </div>
+
+                <div>
+                  <label
+                    for="scheduled-time"
+                    class="block text-sm font-medium text-gray-700 mb-1"
+                    >Scheduled Time</label
+                  >
+                  <input
+                    type="datetime-local"
+                    id="scheduled-time"
+                    x-model="scheduledTime"
+                    class="mt-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    required
+                  />
+                  <p class="mt-1 text-sm text-gray-500">
+                    Set when this task should be completed
+                  </p>
                 </div>
 
                 <div>
@@ -319,7 +411,7 @@
                 <div class="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
                   <button
                     type="submit"
-                    :disabled="isSubmitting || !taskName || !taskFile"
+                    :disabled="isSubmitting || !taskName || !taskFile || !scheduledTime"
                     class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <template x-if="!isSubmitting">

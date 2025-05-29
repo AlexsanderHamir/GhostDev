@@ -63,11 +63,55 @@
       <div class="bg-white shadow rounded-lg p-6 mb-6">
         <div class="flex items-start justify-between">
           <div>
-            <h1 class="text-2xl font-bold text-gray-900 mb-2">
-              {{ task.task_name }}
-            </h1>
+            <div class="flex items-center space-x-3 mb-2">
+              <h1 class="text-2xl font-bold text-gray-900">
+                {{ task.task_name }}
+              </h1>
+              {% if task.task_completed %}
+              <span
+                class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800"
+              >
+                <svg
+                  class="w-4 h-4 mr-1.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M5 13l4 4L19 7"
+                  ></path>
+                </svg>
+                Completed
+              </span>
+              {% else %}
+              <span
+                class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800"
+              >
+                <svg
+                  class="w-4 h-4 mr-1.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  ></path>
+                </svg>
+                Pending
+              </span>
+              {% endif %}
+            </div>
             <div class="flex items-center space-x-4 text-sm text-gray-500">
               <div>Created {{ format_date(task.created_at) }}</div>
+              {% if task.scheduled_time %}
+              <div>Scheduled for {{ format_date(task.scheduled_time) }}</div>
+              {% endif %}
               <a
                 href="{{ task.repo_url }}"
                 target="_blank"
