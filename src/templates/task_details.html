@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>GhostDev - {{ task.task_name }}</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Alpine.js -->
+    <script
+      defer
+      src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <!-- PDF.js for PDF viewing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    </script>
+  </head>
+  <body class="bg-gray-100 min-h-screen">
+    <!-- Navigation Bar -->
+    <nav class="bg-white shadow-lg">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between h-16">
+          <div class="flex items-center">
+            <a href="/" class="text-xl font-bold text-gray-800">GhostDev</a>
+            <span class="mx-2 text-gray-500">/</span>
+            <a href="/dash" class="text-gray-600 hover:text-gray-800"
+              >Dashboard</a
+            >
+            <span class="mx-2 text-gray-500">/</span>
+            <a
+              href="/repo/{{ task.repo_id }}"
+              class="text-gray-600 hover:text-gray-800"
+              >{{ task.repo_name }}</a
+            >
+            <span class="mx-2 text-gray-500">/</span>
+            <span class="text-gray-800">{{ task.task_name }}</span>
+          </div>
+          <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+              {% if user.avatar_url %}
+              <img
+                src="{{ user.avatar_url }}"
+                alt="Profile"
+                class="w-8 h-8 rounded-full"
+              />
+              {% endif %}
+              <span class="text-gray-700">{{ user.name or user.login }}</span>
+            </div>
+            <a href="/auth/logout" class="text-red-600 hover:text-red-800"
+              >Sign Out</a
+            >
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <!-- Task Header -->
+      <div class="bg-white shadow rounded-lg p-6 mb-6">
+        <div class="flex items-start justify-between">
+          <div>
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">
+              {{ task.task_name }}
+            </h1>
+            <div class="flex items-center space-x-4 text-sm text-gray-500">
+              <div>Created {{ format_date(task.created_at) }}</div>
+              <a
+                href="{{ task.repo_url }}"
+                target="_blank"
+                class="text-blue-600 hover:text-blue-800"
+              >
+                View Repository
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PDF Viewer -->
+      <div class="bg-white shadow rounded-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-800">Task Document</h2>
+          <a
+            href="/api/tasks/{{ task.task_id }}/pdf"
+            target="_blank"
+            class="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
+          >
+            Download PDF
+          </a>
+        </div>
+        <div class="border border-gray-200 rounded-lg p-4">
+          <div id="pdf-viewer" class="w-full h-[800px] overflow-auto">
+            <div class="flex items-center justify-center h-full">
+              <div class="text-center">
+                <div
+                  class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"
+                ></div>
+                <p class="mt-4 text-gray-600">Loading PDF...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      // Load and display PDF
+      async function loadPDF() {
+        try {
+          const pdfViewer = document.getElementById("pdf-viewer");
+          const loadingDiv = pdfViewer.querySelector("div");
+
+          // Load the PDF
+          const pdf = await pdfjsLib.getDocument(
+            "/api/tasks/{{ task.task_id }}/pdf"
+          ).promise;
+
+          // Remove loading indicator
+          loadingDiv.remove();
+
+          // Render each page
+          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d");
+
+            // Set canvas size to match PDF page size
+            const viewport = page.getViewport({ scale: 1.5 });
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            // Render PDF page to canvas
+            await page.render({
+              canvasContext: context,
+              viewport: viewport,
+            }).promise;
+
+            // Add canvas to viewer
+            pdfViewer.appendChild(canvas);
+
+            // Add page number
+            const pageNumber = document.createElement("div");
+            pageNumber.className = "text-center text-gray-500 text-sm my-4";
+            pageNumber.textContent = `Page ${pageNum} of ${pdf.numPages}`;
+            pdfViewer.appendChild(pageNumber);
+          }
+        } catch (error) {
+          console.error("Error loading PDF:", error);
+          const pdfViewer = document.getElementById("pdf-viewer");
+          pdfViewer.innerHTML = `
+            <div class="flex items-center justify-center h-full">
+              <div class="text-center">
+                <p class="text-red-600">Error loading PDF. Please try again later.</p>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      // Load PDF when page loads
+      document.addEventListener("DOMContentLoaded", loadPDF);
+    </script>
+  </body>
+</html>
