@@ -1,7 +1,6 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-
-from helpers import get_db_connection
+from db import get_db_connection
 
 
 async def execute_due_tasks():
@@ -12,7 +11,7 @@ async def execute_due_tasks():
 
         # Get all tasks that are due (scheduled_time <= current time)
         cur.execute("""
-            SELECT t.task_id, t.task_name, t.repo_id, r.user_id
+            SELECT t.task_id, t.task_name, t.repo_id, r.user_id, t.pdf_file_path
             FROM "Task" t
             JOIN "Repo" r ON t.repo_id = r.repo_id
             WHERE t.scheduled_time <= NOW()
@@ -22,11 +21,13 @@ async def execute_due_tasks():
         due_tasks = cur.fetchall()
 
         for task in due_tasks:
-            task_id, task_name, repo_id, user_id = task
-            print(f"Executing task {task_id}: {task_name}"
-                  )  # This is where you'd put your actual task execution logic
+            task_id, task_name, repo_id, user_id, pdf_file_path = task
+            print(
+                f"Executing task {task_id}: {task_name} for PDF: {pdf_file_path}"
+            )
 
-            # Update task status to mark it as executed
+            execute_task_in_container(repo_id, pdf_file_path)
+
             cur.execute(
                 """
                 UPDATE "Task"
@@ -65,3 +66,8 @@ def setup_scheduler():
                       replace_existing=True)
 
     return scheduler
+
+
+def execute_task_in_container(repo_url: str, pdf_text: str) -> None:
+    """Execute the task in a Docker container."""
+    pass
