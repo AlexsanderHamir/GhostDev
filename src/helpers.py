@@ -18,10 +18,6 @@ from dataclasses import dataclass
 
 
 def upsert_github_user(github_id: int) -> bool:
-    """
-    Check if a user exists and insert if they don't.
-    Returns True if the operation was successful, False otherwise.
-    """
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -49,8 +45,44 @@ def upsert_github_user(github_id: int) -> bool:
         return False
 
 
-async def get_current_user(request: Request) -> Optional[dict]:
-    return request.session.get('github_user')
+def get_token_by_session_id(session_id: str) -> Optional[dict]:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT token FROM Session WHERE session_id = %s",
+                (session_id, ))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+async def get_current_user(request: Request, oauth: OAuth) -> tuple[dict, str]:
+    session_id = request.session.get('session_id')
+    if session_id:
+        token = get_token_by_session_id(session_id)
+        if token:
+            resp = await oauth.github.get('user', token=token)
+            if not resp or resp.status_code != 200:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to fetch user profile from GitHub")
+
+            profile = resp.json()
+            if not profile or 'id' not in profile or 'login' not in profile:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid user profile data received from GitHub")
+
+            # Store full user info in session for immediate use
+            user_data = {
+                'id': profile['id'],
+                'login': profile['login'],
+                'name': profile.get('name'),
+                'email': profile.get('email'),
+                'avatar_url': profile.get('avatar_url')
+            }
+
+            return user_data, token
+
+    return None
 
 
 def format_date(date_str: str) -> str:
@@ -118,40 +150,53 @@ async def fetch_github_repositories(
     } for repo in repos]
 
 
-async def handle_github_callback(request: Request, oauth: OAuth) -> None:
-    """Handle GitHub OAuth callback and store user data."""
+async def get_or_create_session(request: Request, oauth: OAuth) -> str:
     token = await oauth.github.authorize_access_token(request)
     if not token:
         raise HTTPException(status_code=400,
                             detail="Failed to obtain access token from GitHub")
-
-    # Store the token in the session
-    request.session['github_token'] = token
 
     resp = await oauth.github.get('user', token=token)
     if not resp or resp.status_code != 200:
         raise HTTPException(status_code=400,
                             detail="Failed to fetch user profile from GitHub")
 
-    profile = resp.json()
-    if not profile or 'id' not in profile or 'login' not in profile:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid user profile data received from GitHub")
+    user_id = resp.json()['id']
 
-    # Store full user info in session for immediate use
-    user_data = {
-        'id': profile['id'],
-        'login': profile['login'],
-        'name': profile.get('name'),
-        'email': profile.get('email'),
-        'avatar_url': profile.get('avatar_url')
-    }
+    inserted_or_exists = upsert_github_user(user_id)
+    if inserted_or_exists:
+        session_id = create_session(user_id, token)
+        return session_id
 
-    request.session['github_user'] = user_data
 
-    # Store user in database using helper function
-    upsert_github_user(user_data['id'])
+def create_session(user_id: str, token: str) -> str:
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Try to fetch existing session
+    cur.execute("SELECT session_id FROM Session WHERE user_id = %s",
+                (user_id, ))
+    row = cur.fetchone()
+
+    if row is not None:
+        # Update the token and return existing session_id
+        cur.execute("UPDATE Session SET token = %s WHERE user_id = %s",
+                    (token, user_id))
+        session_id = row[0]
+    else:
+        # Insert new session and get session_id (PostgreSQL style)
+        cur.execute(
+            """
+            INSERT INTO Session (user_id, token) 
+            VALUES (%s, %s) 
+            RETURNING session_id
+        """, (user_id, token))
+        session_id = cur.fetchone()[0]
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return session_id
 
 
 def save_pdf_file(file: UploadFile, user_id: int) -> str:
@@ -332,7 +377,7 @@ def get_repo_tasks(repo_id: int, user_id: int) -> List[Dict[str, Any]]:
 
 async def get_task_details(task_id: int, user_id: int, oauth: OAuth,
                            token: dict) -> Dict[str, Any]:
-    """Get details for a specific task."""
+
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -472,10 +517,11 @@ def create_app() -> FastAPI:
     return app
 
 
-async def handle_auth_callback(request: Request, oauth) -> RedirectResponse:
-    """Handle GitHub OAuth callback and return redirect response."""
+async def handle_auth_callback(request: Request,
+                               oauth: OAuth) -> RedirectResponse:
     try:
-        await handle_github_callback(request, oauth)
+        session_id = await get_or_create_session(request, oauth)
+        request.session['session_id'] = session_id
         return RedirectResponse(url='/dash')
     except Exception as e:
         request.session.clear()
@@ -483,15 +529,11 @@ async def handle_auth_callback(request: Request, oauth) -> RedirectResponse:
                             detail=f"Authentication failed: {str(e)}")
 
 
-async def validate_user_session(request: Request) -> tuple[dict, str]:
-    """Validate user session and return user info and token."""
-    user = await get_current_user(request)
-    if not user:
+async def validate_user_session(request: Request,
+                                oauth: OAuth) -> tuple[dict, str]:
+    user, token = await get_current_user(request, oauth)
+    if not user or not token:
         raise RedirectResponse(url='/')
-
-    token = request.session.get('github_token')
-    if not token:
-        raise HTTPException(status_code=401, detail="No GitHub token found")
 
     return user, token
 
