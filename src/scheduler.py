@@ -4,7 +4,6 @@ from db import get_db_connection
 
 
 async def execute_due_tasks():
-    """Check for and execute tasks that are due."""
     try:
         conn = get_db_connection()
         cur = conn.cursor()
