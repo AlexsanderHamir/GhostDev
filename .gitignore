@@ -5,3 +5,4 @@ learnings/
 .env
 __pycache__
 uploads/
+setup.sh
