@@ -9,7 +9,6 @@ async def execute_due_tasks():
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # Get all tasks that are due (scheduled_time <= current time)
         cur.execute("""
             SELECT t.task_id, t.task_name, t.repo_id, r.user_id, t.pdf_file_path
             FROM "Task" t
